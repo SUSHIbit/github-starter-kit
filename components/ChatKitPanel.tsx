@@ -11,12 +11,20 @@ import {
   getThemeConfig,
 } from "@/lib/config";
 import { ErrorOverlay } from "./ErrorOverlay";
+import PDFWidget from "./PDFWidget";
 import type { ColorScheme } from "@/hooks/useColorScheme";
 
 export type FactAction = {
   type: "save";
   factId: string;
   factText: string;
+};
+
+export type PDFData = {
+  filename: string;
+  pdfUrl: string;
+  paragraphText: string;
+  extractedText?: string;
 };
 
 type ChatKitPanelProps = {
@@ -61,6 +69,8 @@ export function ChatKitPanel({
       : "pending"
   );
   const [widgetInstanceKey, setWidgetInstanceKey] = useState(0);
+  const [activePDF, setActivePDF] = useState<PDFData | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const setErrorState = useCallback((updates: Partial<ErrorState>) => {
     setErrors((current) => ({ ...current, ...updates }));
@@ -155,7 +165,53 @@ export function ChatKitPanel({
     setIsInitializingSession(true);
     setErrors(createInitialErrors());
     setWidgetInstanceKey((prev) => prev + 1);
+    setActivePDF(null);
   }, []);
+
+  const fetchAndDisplayPDF = useCallback(
+    async (filename: string, context: string) => {
+      if (isDev) {
+        console.info("[ChatKitPanel] Fetching PDF", { filename, context });
+      }
+
+      setPdfLoading(true);
+      try {
+        const response = await fetch(`/api/get-pdf?filename=${encodeURIComponent(filename)}`);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Failed to fetch PDF");
+        }
+
+        const data = await response.json();
+
+        if (isMountedRef.current) {
+          setActivePDF({
+            filename: data.filename,
+            pdfUrl: data.pdfUrl,
+            paragraphText: context,
+            extractedText: data.extractedText,
+          });
+        }
+
+        return { success: true };
+      } catch (error) {
+        console.error("Failed to fetch PDF:", error);
+        if (isMountedRef.current) {
+          setErrorState({
+            integration: error instanceof Error ? error.message : "Failed to load PDF",
+            retryable: false,
+          });
+        }
+        return { success: false, error: error instanceof Error ? error.message : "Unknown error" };
+      } finally {
+        if (isMountedRef.current) {
+          setPdfLoading(false);
+        }
+      }
+    },
+    [setErrorState]
+  );
 
   const getClientSecret = useCallback(
     async (currentSecret: string | null) => {
@@ -312,6 +368,21 @@ export function ChatKitPanel({
         return { success: true };
       }
 
+      if (invocation.name === "show_pdf") {
+        const filename = String(invocation.params.filename ?? "");
+        const context = String(invocation.params.context ?? "");
+
+        if (!filename) {
+          return { success: false, error: "Missing filename parameter" };
+        }
+
+        if (isDev) {
+          console.debug("[ChatKitPanel] show_pdf", { filename, context });
+        }
+
+        return await fetchAndDisplayPDF(filename, context);
+      }
+
       return { success: false };
     },
     onResponseEnd: () => {
@@ -364,6 +435,40 @@ export function ChatKitPanel({
         onRetry={blockingError && errors.retryable ? handleResetChat : null}
         retryLabel="Restart chat"
       />
+
+      {/* PDF Widget Modal */}
+      {activePDF && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="relative max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setActivePDF(null)}
+              className="absolute top-2 right-2 z-10 p-2 bg-white dark:bg-gray-800 rounded-full shadow-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Close PDF"
+            >
+              <svg className="w-6 h-6 text-gray-700 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <PDFWidget
+              pdfUrl={activePDF.pdfUrl}
+              paragraphText={activePDF.paragraphText}
+              filename={activePDF.filename}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* PDF Loading Indicator */}
+      {pdfLoading && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-xl">
+            <div className="flex items-center space-x-3">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900 dark:border-gray-100"></div>
+              <span className="text-gray-900 dark:text-gray-100">Loading PDF...</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

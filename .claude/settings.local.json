@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s \"C:\\Users\\paper\\OneDrive\\Documents\\Averis Documents\\chatkit-starter-project\\openai-chatkit-starter-app\")",
+      "Bash(npm install:*)",
+      "Read(//c/Users/paper/OneDrive/Pictures/Screenshots/**)",
+      "Bash(if exist .next rmdir /s /q .next)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm run dev:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
